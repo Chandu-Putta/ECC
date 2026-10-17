@@ -92,7 +92,7 @@ Pin everything. Unpinned providers change behavior between runs.
 ```hcl
 # versions.tf
 terraform {
-  required_version = ">= 1.6.0, < 2.0.0"
+  required_version = ">= 1.10.0, < 2.0.0"
 
   required_providers {
     aws = {
@@ -285,6 +285,17 @@ resource "aws_launch_template" "app" {
 ```
 
 - `prevent_destroy` on stateful resources (databases, buckets, encryption keys) turns an accidental destroy into a plan error.
+- `prevent_destroy` only protects a resource that is still in the configuration. If you delete the resource block, Terraform no longer sees the setting and will plan to destroy the real resource. To stop managing a resource **without** destroying it, use a `removed` block (Terraform >= 1.7):
+
+```hcl
+removed {
+  from = aws_s3_bucket.data
+
+  lifecycle {
+    destroy = false
+  }
+}
+```
 - `ignore_changes` hides drift. Use it narrowly and add a comment saying why.
 
 ### Secure defaults
@@ -357,8 +368,11 @@ terraform init
 terraform validate
 terraform plan -out=tfplan
 terraform show tfplan          # review before applying
+# STOP: get explicit human approval of the reviewed plan before the next command
 terraform apply tfplan         # applies exactly what was reviewed
 ```
+
+An AI agent must not run `terraform apply` or `terraform destroy` on its own. Show the plan summary, wait for the user to approve it, and only then apply the saved plan.
 
 Why `-out`: a bare `terraform apply` re-plans, so what runs can differ from what you reviewed.
 
@@ -386,10 +400,11 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      # Pin third-party actions to full commit SHAs, not movable tags
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
-          terraform_version: 1.9.8
+          terraform_version: 1.10.5 # must satisfy required_version and use_lockfile (>= 1.10)
       - run: terraform fmt -check -recursive
         working-directory: infra/envs/dev
       - run: terraform init -input=false
@@ -453,7 +468,8 @@ Before opening a PR:
 - [ ] State is remote, encrypted, and locked
 - [ ] No secrets in code, `.tfvars`, or outputs that are not `sensitive`
 - [ ] Variables have types, descriptions, and validation where a bad value is plausible
-- [ ] Stateful resources have `prevent_destroy` or an explicit reason they do not
+- [ ] Stateful resources have `prevent_destroy` or an explicit reason they do not (and removals use a `removed` block with `destroy = false`)
+- [ ] A human approved the saved plan before it was applied
 - [ ] The plan was read: no unexpected destroys or replacements
 - [ ] Refactors use `moved` or `import`, not destroy and recreate
 - [ ] CI applies the saved, reviewed plan
